@@ -5,7 +5,7 @@ A PostgreSQL implementation of the [konserve kv-protocol](https://github.com/rep
 ## Usage
 
 Add to your leiningen dependencies:
-[![Clojars Project](http://clojars.org/org.mihaelkonjevic/konserve-pg/latest-version.svg)](http://clojars.org/org.clojars.mihaelkonjevic/konserve-pg)
+[![Clojars Project](http://clojars.org/org.clojars.mihaelkonjevic/konserve-pg/latest-version.svg)](http://clojars.org/org.clojars.mihaelkonjevic/konserve-pg)
 
 The whole purpose of konserve is to have a unified associative key-value interface for
 edn datastructures. Just use the standard interface functions of konserve.
