@@ -1,4 +1,4 @@
-(defproject org.clojars.mihaelkonjevic/konserve-pg "0.1.0"
+(defproject org.clojars.mihaelkonjevic/konserve-pg "0.1.1"
   :description "A PostgreSQL backend for konserve with HugSQL."
   :url "https://github.com/retro/konserve-pg"
   :license {:name "Eclipse Public License"
