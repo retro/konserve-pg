@@ -3,7 +3,7 @@
 -- :result :raw
 CREATE TABLE IF NOT EXISTS konserve_data (
   id text UNIQUE,
-  edn_value text,
+  edn_value bytea,
   attachment bytea
 );
 CREATE INDEX IF NOT EXISTS konserve_data_id ON konserve_data USING btree (id);

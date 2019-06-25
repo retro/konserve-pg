@@ -7,12 +7,14 @@
 (deftest pg-store-test
   (testing "Test the pg store functionality."
     (let [store (<!! (new-pg-store "postgres://postgres:postgres@localhost:5432/konserve"))]
-       (is (= (<!! (k/exists? store :foo))
+      (is (= (<!! (k/exists? store :foo))
              false))
       (<!! (k/assoc-in store [:foo] nil))
       (is (= (<!! (k/get-in store [:foo]))
              nil))
+      
       (<!! (k/assoc-in store [:foo] :bar))
+
       (is (= (<!! (k/exists? store :foo))
              true))
       (is (= (<!! (k/get-in store [:foo]))

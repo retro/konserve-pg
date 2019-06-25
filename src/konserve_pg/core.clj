@@ -7,14 +7,15 @@
             [hugsql-adapter-case.adapters :refer [kebab-adapter]]
             [clojure.java.jdbc :as j]
             [clojure.core.async :as async
-             :refer [<!! <! >! timeout chan alt! go go-loop]]
+             :refer [<!! <! >! timeout chan alt! go put! go-loop close!]]
             [clojure.edn :as edn]
             [clojure.set :as set]
             [to-jdbc-uri.core :refer [to-jdbc-uri]]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
                                         -exists? -get-in -update-in
                                         PBinaryAsyncKeyValueStore
-                                        -bassoc -bget]]))
+                                        -bassoc -bget]])
+  (:import [java.io ByteArrayInputStream ByteArrayOutputStream]))
 
 (hugsql/def-db-fns "konserve_pg/db.sql" {:adapter (kebab-adapter)})
 
@@ -33,7 +34,7 @@
   (first (db-get-record-edn-value db {:id id})))
 
 (defn upsert-record-edn-value [db id data]
-  (first (db-upsert-record-edn-value db (assoc data :id id))))
+  (first (db-upsert-record-edn-value db {:id id :edn-value data})))
 
 (defn delete-record [db id]
   (db-delete-record db {:id id}))
@@ -55,89 +56,58 @@
                            :id id
                            :key key
                            :exception e}))))))
-  (-get-in [this key-vec]
+  
+   (-get-in [this key-vec]
     (let [[fkey & rkey] key-vec
-          id (str (uuid fkey))]
-      (go (try (get-in (->> id
-                            (get-record-edn-value db)
-                            :edn-value
-                            (-deserialize serializer read-handlers)
-                            second)
-                       rkey)
-               (catch Exception e
-                 (ex-info "Could not read edn value."
-                          {:type :read-error
-                           :id id
-                           :key fkey
-                           :exception e}))))))
-
-  (-assoc-in [this key-vec val] (-update-in this key-vec (fn [_] val)))
+          id (str (uuid fkey))
+          val (:edn-value (get-record-edn-value db id))]
+      (if (= val nil)
+        (go nil)
+        (let [res-ch (chan)]
+          (try
+            (let [bais (ByteArrayInputStream. val)]
+              (if-let [res (get-in
+                              (second (-deserialize serializer read-handlers bais))
+                              rkey)]
+                (put! res-ch res)))
+            (catch Exception e
+              (put! res-ch (ex-info "Could not read key."
+                                   {:type :read-error
+                                    :key fkey
+                                    :exception e})))
+            (finally
+              (close! res-ch)))
+          res-ch)))) 
 
   (-update-in [this key-vec up-fn]
-    (go (try
-          (let [[fkey & rkey] key-vec
-                id (str (uuid fkey))
-                doc (get-record-edn-value db id)]
-            ((fn trans [doc attempt]
-               (let [old (->> doc :edn-value (-deserialize serializer read-handlers) second)
-                     new (if-not (empty? rkey)
-                           (update-in old rkey up-fn)
-                           (up-fn old))]
-                 (cond (and (not doc) new)
-                       [nil (get-in (->> (upsert-record-edn-value db id 
-                                                                  {:edn-value #_(pr-str [key-vec new])
-                                                                   (with-out-str
-                                                                     (-serialize serializer
-                                                                                 *out*
-                                                                                 write-handlers
-                                                                                 [key-vec new]))})
-                                         :edn-value
-                                         (-deserialize serializer read-handlers)
-                                         second)
-                                    rkey)]
-
-                                        ;                       (and (not doc) (not new))
-                                        ;                       [nil nil]
-
-                                        ;                       (not new)
-                                        ;                       (do (cl/delete-document db doc) [(get-in old rkey) nil])
-
-                       :else
-                       (let [old* (get-in old rkey)
-                             new (try (upsert-record-edn-value
-                                       db
-                                       id
-                                       (assoc doc
-                                              :edn-value (with-out-str
-                                                           (-serialize
-                                                            serializer
-                                                            *out*
-                                                            write-handlers
-                                                            [key-vec
-                                                             (if-not (empty? rkey)
-                                                               (update-in (-deserialize
-                                                                           serializer
-                                                                           read-handlers
-                                                                           (:edn-value doc))
-                                                                          rkey
-                                                                          up-fn)
-                                                               (up-fn (-deserialize
-                                                                       serializer
-                                                                       read-handlers
-                                                                       (:edn-value doc))))]))))
-                                      (catch clojure.lang.ExceptionInfo e
-                                        (if (< attempt 10)
-                                          (trans (get-record-edn-value db id) (inc attempt))
-                                          (throw e))))
-                             new* (-> (-deserialize serializer read-handlers (:edn-value new))
-                                      second
-                                      (get-in rkey))]
-                         [old* new*])))) doc 0))
+    (let [[fkey & rkey] key-vec
+          id (str (uuid fkey))]
+      (let [res-ch (chan)]
+        (try
+          (let [old-bin (:edn-value (get-record-edn-value db id))
+                old (when old-bin
+                      (let [bais (ByteArrayInputStream. old-bin)]
+                        (second (-deserialize serializer write-handlers bais))))
+                new (if (empty? rkey)
+                      (up-fn old)
+                      (update-in old rkey up-fn))]
+            (let [baos (ByteArrayOutputStream.)]
+              (-serialize serializer baos write-handlers [key-vec new])
+              (upsert-record-edn-value db id (.toByteArray baos)))
+            (put! res-ch [(get-in old rkey)
+                          (get-in new rkey)]))
           (catch Exception e
-            (ex-info "Could not write edn value."
-                     {:type :write-error
-                      :key key-vec
-                      :exception e})))))
+            (put! res-ch (ex-info "Could not write key."
+                                  {:type :write-error
+                                   :key fkey
+                                   :exception e})))
+          (finally
+            (close! res-ch)))
+        res-ch)))
+  
+  (-assoc-in [this key-vec val] 
+    (-update-in this key-vec (fn [_] val)))
+  
   (-dissoc [this key]
     (go
       (let [id (str (uuid key))]
@@ -165,7 +135,7 @@
   object and optionally read and write handlers for custom types according to
   incognito and a serialization protocol according to konserve."
   [db & {:keys [serializer read-handlers write-handlers]
-         :or {serializer (ser/string-serializer)
+         :or {serializer (ser/fressian-serializer)
               read-handlers (atom {})
               write-handlers (atom {})}}]
   (let [db (if (string? db) (connection-uri db) db)]
