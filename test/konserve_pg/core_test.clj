@@ -1,12 +1,13 @@
 (ns konserve-pg.core-test
   (:require [clojure.test :refer :all]
             [konserve.core :as k]
-            [konserve-pg.core :refer [new-pg-store]]
+            [konserve-pg.core :refer [new-pg-store delete-store]]
             [clojure.core.async :refer [<!!]]))
 
 (deftest pg-store-test
   (testing "Test the pg store functionality."
-    (let [store (<!! (new-pg-store "postgres://postgres:postgres@localhost:5432/konserve"))]
+    (let [uri "postgres://postgres:postgres@localhost:5432/konserve"
+          store (<!! (new-pg-store uri))]
       (is (= (<!! (k/exists? store :foo))
              false))
       (<!! (k/assoc-in store [:foo] nil))
@@ -25,7 +26,8 @@
       (<!! (k/bassoc store :binbar (byte-array (range 10))))
       (<!! (k/bget store :binbar (fn [{:keys [input-stream]}]
                                    (is (= (map byte (slurp input-stream))
-                                          (range 10)))))))))
+                                          (range 10))))))
+      (delete-store uri))))
 
 
 (comment

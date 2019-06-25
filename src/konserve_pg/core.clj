@@ -25,6 +25,9 @@
 (defn create-table! [db]
   (db-create-table db))
 
+(defn drop-table! [db]
+  (db-drop-table db))
+
 (defn record-exists? [db id]
   (-> (db-record-exists db {:id id})
       first
@@ -152,6 +155,6 @@
                       :db db
                       :exception e}))))))
 
-
-
-
+(defn delete-store [db]
+  (let [db (if (string? db) (connection-uri db) db)]
+    (drop-table! db)))
