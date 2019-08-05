@@ -82,7 +82,10 @@
               (close! res-ch)))
           res-ch)))) 
 
-  (-update-in [this key-vec up-fn]
+   (-update-in [this key-vec up-fn]
+     (-update-in this key-vec up-fn []))
+
+   (-update-in [this key-vec up-fn args]
     (let [[fkey & rkey] key-vec
           id (str (uuid fkey))]
       (let [res-ch (chan)]
@@ -92,8 +95,8 @@
                       (let [bais (ByteArrayInputStream. old-bin)]
                         (second (-deserialize serializer write-handlers bais))))
                 new (if (empty? rkey)
-                      (up-fn old)
-                      (update-in old rkey up-fn))]
+                      (apply up-fn old args)
+                      (apply update-in old rkey up-fn args))]
             (let [baos (ByteArrayOutputStream.)]
               (-serialize serializer baos write-handlers [key-vec new])
               (upsert-record-edn-value db id (.toByteArray baos)))

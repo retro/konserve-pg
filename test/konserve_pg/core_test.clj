@@ -14,6 +14,15 @@
       (is (= (<!! (k/get-in store [:foo]))
              nil))
       
+      (<!! (k/assoc-in store [:num] 1))
+      (is (= (<!! (k/get-in store [:num])) 1))
+
+      (<!! (k/update-in store [:num] inc))
+      (is (= (<!! (k/get-in store [:num])) 2))
+
+      (<!! (k/update-in store [:num] + 2 3))
+      (is (= (<!! (k/get-in store [:num])) 7))
+
       (<!! (k/assoc-in store [:foo] :bar))
 
       (is (= (<!! (k/exists? store :foo))
